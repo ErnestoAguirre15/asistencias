@@ -5,7 +5,8 @@ global.document={querySelectorAll:()=>[]};
 Object.defineProperty(global.navigator,'onLine',{value:true,configurable:true});
 const storage=new Map();
 global.localStorage={get length(){return storage.size;},key:i=>[...storage.keys()][i],getItem:k=>storage.get(k)??null,setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)};
-const {enqueue,pending,sync,migrate}=await import('../public/queue.js');
+const {enqueue,pending,sync,migrate,setAuthProvider}=await import('../public/queue.js');
+setAuthProvider(async()=> 'test-token');
 test('queue persists first, retains failures and removes only acknowledged records',async()=>{
   const record={id:'test-id',nombre:'Ana',hora_cliente:new Date().toISOString()};
   enqueue(record); assert.equal(pending().length,1);
@@ -30,4 +31,13 @@ test('duplicate emails leave retry queue and persist a rejection for correction'
   assert.equal(pending().length,0); assert.equal(calls,1);
   assert.equal(rejection.correo,'ana@example.com');
   assert.ok(localStorage.getItem('presencia:rejected:duplicate-id'));
+});
+test('expired Google session preserves pending data for reauthentication',async()=>{
+  storage.clear(); enqueue({id:'expired',nombre:'Ana',correo:'ana@example.com',hora_cliente:new Date().toISOString()});
+  global.fetch=async()=>({ok:false,status:401,json:async()=>({error:'Sesión terminada'})});
+  await sync(); assert.equal(pending().length,1); assert.equal(storage.has('presencia:rejected:expired'),false);
+});
+test('a different Google account cannot send another visitors pending record',async()=>{
+  setAuthProvider(async()=>null); let calls=0; global.fetch=async()=>{calls++;};
+  await sync(); assert.equal(calls,0); assert.equal(pending().length,1);
 });

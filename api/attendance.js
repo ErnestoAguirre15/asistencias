@@ -1,4 +1,5 @@
 import { authorized, database, reply, sameOrigin, validateRecord } from '../lib/server.js';
+import { verifyGoogleVisitor } from '../lib/visitor-auth.js';
 
 export default async function handler(req, res) {
   if (req.method === 'GET') {
@@ -22,6 +23,10 @@ export default async function handler(req, res) {
   }
   if (req.method !== 'POST') return reply(res, 405, { error: 'Método no permitido.' });
   if (!sameOrigin(req)) return reply(res, 403, { error: 'Origen no permitido.' });
+  let identity;
+  try { identity=await verifyGoogleVisitor(req); }
+  catch(error) { return reply(res,error.status || 503,{error:error.message}); }
+  if(typeof req.body?.correo !== 'string' || req.body.correo.trim().toLowerCase() !== identity.correo) return reply(res,403,{error:'Selecciona la misma cuenta de Google con la que creaste este registro pendiente.'});
   const record = validateRecord(req.body);
   if (!record) return reply(res, 400, { error: 'Escribe un nombre y un correo electrónico válido. Si este registro es antiguo, vuelve a completarlo con correo.' });
   try {

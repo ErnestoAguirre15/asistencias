@@ -1,5 +1,7 @@
 import { api } from './shared.js';
 const PREFIX = 'presencia:pending:';
+let authProvider=async()=>null;
+export function setAuthProvider(provider) { authProvider=provider; }
 export function pending() {
   const records = [];
   for (let i=0; i<localStorage.length; i++) {
@@ -41,7 +43,9 @@ export function sync() {
     if (!navigator.onLine) return;
     for (const record of pending()) {
       try {
-        const saved = await api('attendance', { method:'POST', body:JSON.stringify(record) });
+        const token=await authProvider(record);
+        if(!token) continue;
+        const saved = await api('attendance', { method:'POST', headers:{Authorization:`Bearer ${token}`}, body:JSON.stringify(record) });
         localStorage.removeItem(PREFIX + record.id);
         window.dispatchEvent(new CustomEvent('synced', { detail:{ ...record, ...saved } }));
         window.dispatchEvent(new Event('queuechange'));

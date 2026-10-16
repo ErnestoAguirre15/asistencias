@@ -1,5 +1,7 @@
 import { reply } from '../lib/server.js';
-// Compatibilidad con versiones previas: acceso Google desactivado.
+import { publicAuthConfig } from '../lib/visitor-auth.js';
 export default function handler(req,res) {
-  return reply(res,200,{google:false});
+  if(req.method!=='GET') return reply(res,405,{error:'Método no permitido.'});
+  try { return reply(res,200,publicAuthConfig()); }
+  catch(error) { return reply(res,503,{error:error.message}); }
 }

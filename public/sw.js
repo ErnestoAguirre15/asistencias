@@ -1,5 +1,5 @@
-const CACHE='presencia-public-v3';
-const ASSETS=['/asistencia','/asistencia.html','/app.css','/tailwind.css','/config.js','/shared.js','/queue.js','/visitor.js','/favicon.svg'];
+const CACHE='presencia-public-v4-google';
+const ASSETS=['/asistencia','/asistencia.html','/app.css','/tailwind.css','/config.js','/shared.js','/queue.js','/visitor.js','/google-auth.js','/vendor/supabase.js','/favicon.svg'];
 self.addEventListener('install',event => { event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(ASSETS)).then(() => self.skipWaiting())); });
 self.addEventListener('activate',event => { event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(key => key.startsWith('presencia-public-') && key!==CACHE).map(key => caches.delete(key)))).then(() => self.clients.claim())); });
 self.addEventListener('fetch',event => {
@@ -11,6 +11,7 @@ self.addEventListener('fetch',event => {
     return response;
   }).catch(() => caches.match(event.request)));
 });
+
 
 
 
