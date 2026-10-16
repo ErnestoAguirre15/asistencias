@@ -20,3 +20,14 @@ test('old pending visits migrate without changing identifiers',()=>{
   localStorage.setItem('asistencias_pendientes',JSON.stringify([{id:'legacy-id',nombre:'Luis',hora_cliente:new Date().toISOString()}]));
   migrate(); assert.equal(pending()[0].id,'legacy-id'); assert.equal(localStorage.getItem('asistencias_pendientes'),null);
 });
+test('duplicate emails leave retry queue and persist a rejection for correction',async()=>{
+  storage.clear();
+  enqueue({id:'duplicate-id',nombre:'Ana',correo:'ana@example.com',hora_cliente:new Date().toISOString()});
+  let calls=0;
+  global.fetch=async()=>{calls++;return {ok:false,status:409,json:async()=>({error:'Este correo ya está registrado.'})};};
+  let rejection; window.addEventListener('rejected',event=>rejection=event.detail,{once:true});
+  await sync(); await sync();
+  assert.equal(pending().length,0); assert.equal(calls,1);
+  assert.equal(rejection.correo,'ana@example.com');
+  assert.ok(localStorage.getItem('presencia:rejected:duplicate-id'));
+});

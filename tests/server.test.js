@@ -10,7 +10,7 @@ process.env.SUPABASE_URL='https://example.supabase.co';
 process.env.SUPABASE_SERVICE_ROLE_KEY='test-key';
 process.env.ADMIN_PASSWORD='1234';
 const response = () => ({ statusCode:0, headers:{}, setHeader(k,v){ this.headers[k]=v; }, status(n){ this.statusCode=n; return this; }, json(body){ this.body=body; return this; } });
-const record={ id:'11223344-1234-4234-8234-123456789abc', nombre:'  Ana   Pérez ', hora_cliente:'2026-10-15T12:34:56Z' };
+const record={ id:'11223344-1234-4234-8234-123456789abc', nombre:'  Ana   Pérez ', correo:'ANA@EJEMPLO.COM', hora_cliente:'2026-10-15T12:34:56Z' };
 test('sessions reject tampering, expiration and missing cookies', () => {
   const token=session(1000), req={headers:{cookie:`presencia_session=${token}`}};
   assert.equal(authorized(req,2000),true);
@@ -20,6 +20,8 @@ test('sessions reject tampering, expiration and missing cookies', () => {
 });
 test('server validates and normalizes public input', () => {
   assert.equal(validateRecord(record).nombre,'Ana Pérez');
+  assert.equal(validateRecord(record).correo,'ana@ejemplo.com');
+  for(const correo of ['', 'incorrecto', 'a@b', 'a b@ejemplo.com', 'a'.repeat(255)+'@b.com']) assert.equal(validateRecord({...record,correo}),null);
   for(const invalid of [{...record,id:'bad'}, {...record,nombre:' '}, {...record,nombre:'a'.repeat(121)}, {...record,hora_cliente:'invalid'}]) assert.equal(validateRecord(invalid),null);
 });
 test('CSV neutralizes formulas and quotes embedded separators', () => {
@@ -54,3 +56,24 @@ test('login validates server-side and sets HttpOnly cookie', async () => {
 test('API rejects cross-origin writes',async()=>{
   const res=response(); await attendance({method:'POST',headers:{host:'a.test',origin:'https://b.test'},body:record},res); assert.equal(res.statusCode,403);
 });
+test('duplicate email returns 409 rather than a success receipt',async()=>{
+  const original=global.fetch;
+  global.fetch=async()=>({ok:true,status:200,json:async()=>({error:'Este correo ya está registrado.',status:409})});
+  try {
+    const res=response(); await attendance({method:'POST',headers:{},body:record},res);
+    assert.equal(res.statusCode,409); assert.equal(res.body.created_at,undefined);
+  } finally {global.fetch=original;}
+});
+test('deletion requires admin session and same origin',async()=>{
+  const res=response(); await attendance({method:'DELETE',headers:{},body:{id:record.id}},res); assert.equal(res.statusCode,401);
+  const cross=response(); await attendance({method:'DELETE',headers:{cookie:`presencia_session=${session()}`,host:'a.test',origin:'https://b.test'},body:{id:record.id}},cross); assert.equal(cross.statusCode,403);
+});
+test('authenticated deletion calls only the selected record RPC',async()=>{
+  const original=global.fetch; let sent;
+  global.fetch=async(url,options)=>{sent={url,body:JSON.parse(options.body)}; return {ok:true,status:200,json:async()=>null};};
+  try {
+    const res=response(); await attendance({method:'DELETE',headers:{cookie:`presencia_session=${session()}`},body:{id:record.id}},res);
+    assert.equal(res.statusCode,200); assert.match(sent.url,/rpc\/eliminar_visita$/); assert.deepEqual(sent.body,{registro_id:record.id});
+  } finally {global.fetch=original;}
+});
+

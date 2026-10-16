@@ -3,6 +3,21 @@ import { pending, startSync } from './queue.js';
 import { csvCell } from './csv.js';
 let records = new Map(), cursor = '0', page = 0, active = false, loading = false, loaded = false, generation = 0;
 const PAGE_SIZE = 20;
+const removed=new Set();
+$('rows').addEventListener('click',async event=>{
+  const button=event.target.closest('[data-delete]');
+  if(!button) return;
+  const id=button.dataset.delete, record=records.get(id);
+  if(!record || !confirm(`¿Eliminar la visita de ${record.nombre}? Desaparecerá del panel; el correo seguirá reservado para evitar otro registro.`)) return;
+  button.disabled=true;
+  try {
+    await api('attendance',{method:'DELETE',body:JSON.stringify({id})});
+    removed.add(id); records.delete(id); render();
+  } catch(error) {
+    if(error.status===401) { showLogin(); $('loginError').textContent='Tu sesión terminó. Ingresa nuevamente.'; return; }
+    $('loadError').hidden=false; $('loadError').textContent=error.message; button.disabled=false;
+  }
+});
 const normalized = s => s.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
 function localRecords() {
   try { return pending().filter(r => !records.has(r.id)); }
@@ -15,7 +30,7 @@ function all() {
 }
 function filtered() {
   const q = normalized($('search').value.trim()), d = $('filterDate').value;
-  return all().filter(r => (!q || normalized(r.nombre).includes(q)) && (!d || day(r.fecha) === d));
+  return all().filter(r => (!q || normalized(r.nombre+' '+(r.correo || '')).includes(q)) && (!d || day(r.fecha) === d));
 }
 function render() {
   const list = filtered(), today = day(new Date());
@@ -25,7 +40,7 @@ function render() {
   $('pendingCount').textContent = localRecords().length;
   $('rows').innerHTML = list.slice(page*PAGE_SIZE,(page+1)*PAGE_SIZE).map(r => {
     const initials = r.nombre.trim().split(/\s+/).slice(0,2).map(s => s[0]).join('').toUpperCase();
-    return `<tr><td><div class="person"><span class="avatar" aria-hidden="true">${esc(initials)}</span><span>${esc(r.nombre)}</span></div></td><td>${esc(date(r.fecha))}</td><td>${esc(time(r.fecha))}${r.estado === 'Pendiente' ? ' <small class="muted">(local)</small>' : ''}</td><td><span class="badge ${r.estado === 'Pendiente' ? 'pending' : ''}">${r.estado}</span></td></tr>`;
+    return `<tr><td><div class="person"><span class="avatar" aria-hidden="true">${esc(initials)}</span><span>${esc(r.nombre)}</span></div></td><td>${esc(r.correo || 'Sin correo (registro anterior)')}</td><td>${esc(date(r.fecha))}</td><td>${esc(time(r.fecha))}${r.estado === 'Pendiente' ? ' <small class="muted">(local)</small>' : ''}</td><td><span class="badge ${r.estado === 'Pendiente' ? 'pending' : ''}">${r.estado}</span></td><td>${r.estado === 'Sincronizado' ? `<button class="btn danger" data-delete="${esc(r.id)}" aria-label="Eliminar registro de ${esc(r.nombre)}">Eliminar</button>` : '<small class="muted">Esperando sincronización</small>'}</td></tr>`;
   }).join('');
   $('empty').hidden = list.length > 0;
   $('emptyText').textContent = !loaded ? 'Cargando las visitas…' : ($('search').value || $('filterDate').value ? 'No encontramos visitas con estos filtros.' : 'Todavía no hay visitas. Comparte el QR para comenzar.');
@@ -49,7 +64,7 @@ async function load() {
     do {
       const data = await api(`attendance?cursor=${encodeURIComponent(nextCursor)}`);
       if (run !== generation || !active) return;
-      data.rows.forEach(r => snapshot.set(r.id,r)); nextCursor=data.next; more=data.more;
+      data.rows.filter(r=>!removed.has(r.id)).forEach(r => snapshot.set(r.id,r)); nextCursor=data.next; more=data.more;
     } while (more);
     records=snapshot;
     loaded=true; $('loadError').hidden=true;
@@ -77,7 +92,7 @@ $('logout').onclick=logout; $('mobileLogout').onclick=logout;
 $('clearFilters').onclick = () => { $('search').value=''; $('filterDate').value=''; page=0; render(); };
 $('previous').onclick = () => { page--; render(); }; $('next').onclick = () => { page++; render(); };
 $('exportCSV').onclick = () => {
-  const rows = [['Nombre','Fecha','Hora','Estado','IP','Hora local original (ISO)','Hora servidor (ISO)'],...filtered().map(r => [r.nombre,day(r.fecha),time(r.fecha),r.estado,r.ip || '',r.hora_cliente,r.created_at || ''])];
+  const rows = [['Nombre','Correo','Fecha','Hora','Estado','IP','Hora local original (ISO)','Hora servidor (ISO)'],...filtered().map(r => [r.nombre,r.correo || '',day(r.fecha),time(r.fecha),r.estado,r.ip || '',r.hora_cliente,r.created_at || ''])];
   download(new Blob(['\uFEFF'+rows.map(row => row.map(csvCell).join(',')).join('\r\n')],{type:'text/csv;charset=utf-8'}),`visitas_${day(new Date())}.csv`);
 };
 function openQR() {

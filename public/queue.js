@@ -17,6 +17,15 @@ export function enqueue(record) {
   localStorage.setItem(PREFIX + record.id, JSON.stringify(record));
   window.dispatchEvent(new Event('queuechange'));
 }
+export function rejected() {
+  const items=[];
+  for (let i=0;i<localStorage.length;i++) {
+    const key=localStorage.key(i);
+    if(key?.startsWith('presencia:rejected:')) items.push(JSON.parse(localStorage.getItem(key)));
+  }
+  return items;
+}
+export function dismissRejected(id) { localStorage.removeItem('presencia:rejected:'+id); }
 export function migrate() {
   const old = localStorage.getItem('asistencias_pendientes');
   if (!old) return;
@@ -37,6 +46,15 @@ export function sync() {
         window.dispatchEvent(new CustomEvent('synced', { detail:{ ...record, ...saved } }));
         window.dispatchEvent(new Event('queuechange'));
       } catch (error) {
+        if (error.status === 400 || error.status === 409) {
+          const failed={...record, error:error.message};
+          // Persistir el rechazo antes de retirarlo de la cola; se podrá corregir al volver.
+          localStorage.setItem('presencia:rejected:'+record.id,JSON.stringify(failed));
+          localStorage.removeItem(PREFIX+record.id);
+          window.dispatchEvent(new CustomEvent('rejected',{detail:failed}));
+          window.dispatchEvent(new Event('queuechange'));
+          continue;
+        }
         window.dispatchEvent(new CustomEvent('syncerror', { detail:error }));
         if (error.status !== 400) break;
       }

@@ -1,0 +1,27 @@
+// Verificación opcional con PGlite: node tests/database-check.mjs <ruta a dist/index.js>
+import { pathToFileURL } from 'node:url';
+import { readFile } from 'node:fs/promises';
+import assert from 'node:assert/strict';
+const { PGlite }=await import(pathToFileURL(process.argv[2]).href);
+const db=new PGlite();
+await db.exec('create role anon; create role authenticated; create role service_role;');
+await db.exec('create table public.asistencias(id bigint primary key,nombre text,fecha date,hora time); insert into public.asistencias values(1,\'Visita antigua\',\'2026-10-15\',\'09:00\');');
+await db.exec(await readFile(new URL('../supabase.sql',import.meta.url),'utf8'));
+const migration=await readFile(new URL('../ACTUALIZAR-CORREO.sql',import.meta.url),'utf8');
+await db.exec(migration); await db.exec(migration);
+const id='11223344-1234-4234-8234-123456789abc', other='21223344-1234-4234-8234-123456789abc';
+const register=async(uuid,email)=> (await db.query("select public.registrar_visita_correo($1,'Ana',$2,now(),'127.0.0.1') as result",[uuid,email])).rows[0].result;
+const first=await register(id,'  ANA@EJEMPLO.COM  ');
+assert.equal(first.id,id);
+const retry=await register(id,'ana@ejemplo.com'); assert.equal(retry.created_at,first.created_at);
+assert.equal((await register(other,'Ana@Ejemplo.com')).status,409);
+assert.equal((await register(other,'incorrecto')).status,400);
+await db.query('select public.eliminar_visita($1)',[id]);
+assert.equal((await db.query('select * from public.asistencias where deleted_at is null')).rows.length,0);
+assert.equal((await register(id,'ana@ejemplo.com')).status,409);
+assert.equal((await register(other,'ana@ejemplo.com')).status,409);
+assert.equal((await db.query('select * from public.asistencias_respaldo')).rows.length,1);
+await db.exec('set role anon');
+await assert.rejects(db.query('select public.eliminar_visita($1)',[id]),/permission denied/);
+await db.close();
+console.log('SQL OK: respaldo, migración repetible, normalización, correo único, reintentos y eliminación protegida.');
