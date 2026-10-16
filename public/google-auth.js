@@ -8,25 +8,30 @@ export async function authClient() {
     if(!window.supabase) await new Promise((resolve,reject)=>{
       const script=document.createElement('script');script.src='/vendor/supabase.js';script.onload=resolve;script.onerror=()=>reject(new Error('No se pudo cargar el acceso con Google. Revisa la conexión.'));document.head.append(script);
     });
-    client=window.supabase.createClient(config.url,config.key,{auth:{flowType:'pkce',detectSessionInUrl:false,storageKey:'presencia-google-required',autoRefreshToken:true}});
+    client=window.supabase.createClient(config.url,config.key,{auth:{flowType:'pkce',detectSessionInUrl:true,storageKey:'presencia-google-required',autoRefreshToken:true}});
     return client;
   })().finally(()=>{setup=null;});
   return setup;
 }
 export async function initializeGoogle() {
-  const auth=await authClient();
+  // Leer la URL antes de que el SDK la limpie al completar el intercambio PKCE.
   const params=new URLSearchParams(location.search), fragment=new URLSearchParams(location.hash.slice(1));
   if(params.has('error') || fragment.has('error')) {
     history.replaceState(null,'',location.pathname);
     throw new Error('Se canceló el acceso con Google. Pulsa el botón para volver a intentarlo.');
   }
-  if(params.has('code')) {
-    const {error}=await auth.auth.exchangeCodeForSession(params.get('code'));
-    history.replaceState(null,'',location.pathname);
-    if(error) throw new Error('El acceso de Google venció o no pudo completarse. Selecciona tu cuenta otra vez.');
+  const auth=await authClient();
+  // El SDK 2.45.4 consume automáticamente el código PKCE una sola vez.
+  // initialize() espera ese proceso; NO volver a llamar exchangeCodeForSession.
+  const {error:initError}=await auth.auth.initialize();
+  if(params.has('code')) history.replaceState(null,'',location.pathname);
+  if(initError) throw new Error('No se pudo completar Google. Abre el formulario original y selecciona la cuenta otra vez en la misma pestaña.');
+  const {data:{session},error:sessionError}=await auth.auth.getSession();
+  if(sessionError) throw new Error('No se pudo recuperar tu sesión. Selecciona la cuenta de Google otra vez.');
+  if(!session) {
+    if(params.has('code')) throw new Error('Falta la sesión que inició este acceso. Vuelve al formulario y selecciona Google desde el mismo navegador.');
+    return null;
   }
-  const {data:{session}}=await auth.auth.getSession();
-  if(!session) return null;
   const {data,error}=await auth.auth.getUser();
   if(error) throw new Error('No pudimos verificar la cuenta. Selecciona Google nuevamente.');
   return data.user;
